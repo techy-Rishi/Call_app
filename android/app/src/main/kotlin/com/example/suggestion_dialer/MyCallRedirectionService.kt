@@ -15,14 +15,17 @@ class MyCallRedirectionService : CallRedirectionService() {
         initialPhoneAccount: PhoneAccountHandle,
         allowInteractiveResponse: Boolean
     ) {
-        // Let the carrier network call start immediately (so call time starts counting)
-        placeCallUnmodified()
+        // 1. Asli network call ko yahin rok dein taaki samne wale ko call na jaye
+        cancelCall()
 
+        // 2. Dial kiya gaya number nikalein
         val phoneNumber = handle.schemeSpecificPart ?: "Unknown"
-        
-        // Launch your 1-minute suggestion UI instantly on top as an ongoing call screen
+
+        // 3. Turant MainActivity (Live Timer Screen) open karein
         val launchIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("redirected_number", phoneNumber)
         }
         startActivity(launchIntent)
