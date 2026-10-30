@@ -24,13 +24,6 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Android Gradle scaffolding and overlay custom files
-        run: |
-          mkdir -p /tmp/custom_files
-          cp -r lib pubspec.yaml android /tmp/custom_files/
-          flutter create --org com.example --project-name suggestion_dialer --platforms=android .
-          cp -r /tmp/custom_files/* .
-
       - name: Install Flutter dependencies
         run: flutter pub get
 
@@ -42,4 +35,3 @@ jobs:
         with:
           name: suggestion-dialer-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
-
