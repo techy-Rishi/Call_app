@@ -94,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
       platform.invokeMethod('speakText', {'text': _currentSuggestion});
     }
 
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_secondsRemaining > 1) {
         setState(() {
           _secondsRemaining--;
@@ -108,13 +108,14 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       } else {
         timer.cancel();
-        if (_autoPlaceRealCallAfterTimer) {
-          _triggerRealCall();
-        } else {
-          _endSuggestionSession();
-        }
+        // Time's up! Stop speaking and close suggestion screen, call is already live
+        platform.invokeMethod('stopSpeaking');
+        setState(() {
+          _activeInterceptedNumber = null;
+        });
       }
     });
+
   }
 
   String _getRandomSuggestion() {
