@@ -35,6 +35,8 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
   String? _activeNumber;
   int _elapsedSeconds = 0;
   final int _maxSeconds = 60;
+  int _ringCutSeconds = 3; // Kitne seconds baad asli call auto-cut karni hai
+  bool _realCallCutDone = false;
   Timer? _callTimer;
   bool _isSetupDone = false;
 
@@ -45,61 +47,78 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
   }
 
   Future<void> _initChannel() async {
-    // Jab app pehle se background me ho aur JioFSM se nayi call intercept ho
     platform.setMethodCallHandler((call) async {
       if (call.method == "onCallIntercepted") {
         final String number = call.arguments as String;
-        _startSimulatedCall(number);
+        _startHybridCallSession(number);
       }
     });
 
-    // Check karein ki permissions aur role enabled hain ya nahi
     final bool status = await platform.invokeMethod('checkSetupStatus') ?? false;
     setState(() {
       _isSetupDone = status;
     });
 
-    // Agar app band thi aur call intercept hone se launch hui
     final String? initialNumber = await platform.invokeMethod('getInitialNumber');
     if (initialNumber != null && initialNumber.isNotEmpty) {
-      _startSimulatedCall(initialNumber);
+      _startHybridCallSession(initialNumber);
     }
   }
 
-  void _startSimulatedCall(String number) {
+  void _startHybridCallSession(String number) {
     _callTimer?.cancel();
     setState(() {
       _activeNumber = number;
       _elapsedSeconds = 0;
+      _realCallCutDone = false;
     });
 
-    // IVR / Suggestion voice start karein
-    platform.invokeMethod('speakText', {
-      'text': 'Call connected to $number. Your 60 seconds preparation session has started.'
-    });
-
-    // Har 1 second par timer badhayein
-    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       setState(() {
         _elapsedSeconds++;
       });
 
-      // 60 seconds pure hone par automatic save aur close
+      // Jaise hi Ring Delay (e.g. 3 seconds) pura ho, asli call cut karein aur usi log ko edit karein
+      if (_elapsedSeconds == _ringCutSeconds && !_realCallCutDone) {
+        setState(() {
+          _realCallCutDone = true;
+        });
+
+        await platform.invokeMethod('cutRealCallAndPreUpdateLog', {
+          'phoneNumber': number,
+          'duration': _maxSeconds,
+        });
+
+        platform.invokeMethod('speakText', {
+          'text': 'Real call disconnected and log updated. Timer is running.'
+        });
+      }
+
+      // 60 seconds pure hone par final duration update karein aur wapas JioFSM par bhej dein
       if (_elapsedSeconds >= _maxSeconds) {
-        _endCallAndSaveLog();
+        _endCallAndSaveFinalLog();
       }
     });
   }
 
-  Future<void> _endCallAndSaveLog() async {
+  Future<void> _endCallAndSaveFinalLog() async {
     _callTimer?.cancel();
     await platform.invokeMethod('stopSpeaking');
 
     final String numberToLog = _activeNumber ?? "Unknown";
-    // Agar 0 second par cut kiya toh kam se kam 1 sec log karein, warna exact seconds (e.g. 45s)
     final int durationToLog = _elapsedSeconds > 0 ? _elapsedSeconds : 1;
 
-    await platform.invokeMethod('insertCallLog', {
+    // Agar user ne 3 second se pehle hi cut daba diya toh bhi real call cut karein
+    if (!_realCallCutDone) {
+      await platform.invokeMethod('cutRealCallAndPreUpdateLog', {
+        'phoneNumber': numberToLog,
+        'duration': durationToLog,
+      });
+      await Future.delayed(const Duration(milliseconds: 900));
+    }
+
+    // Usi same Call Log entry mein exact seconds (e.g. 45s) update karein
+    await platform.invokeMethod('updateFinalCallLog', {
       'phoneNumber': numberToLog,
       'duration': durationToLog,
     });
@@ -107,9 +126,10 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
     setState(() {
       _activeNumber = null;
       _elapsedSeconds = 0;
+      _realCallCutDone = false;
     });
 
-    // App close karke wapas JioFSM screen par bhej dein
+    // Wapas JioFSM par laut jayein
     SystemNavigator.pop();
   }
 
@@ -127,7 +147,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Agar Call Intercept hui hai toh Native-style Active Call UI dikhayein
     if (_activeNumber != null) {
       return Scaffold(
         body: SafeArea(
@@ -138,11 +157,20 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
               children: [
                 Column(
                   children: [
-                    const Text(
-                      'Connected (Simulated IVR)',
-                      style: TextStyle(color: Colors.greenAccent, fontSize: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _realCallCutDone ? Colors.green.shade800 : Colors.orange.shade800,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _realCallCutDone
+                            ? 'Real Call Cut & Log Edited! (Timer Active)'
+                            : 'Dialing Real Call (Auto-cutting in ${_ringCutSeconds - _elapsedSeconds}s)...',
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                      ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     Text(
                       _activeNumber!,
                       style: const TextStyle(
@@ -163,7 +191,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
                   ],
                 ),
 
-                // Suggestions Card
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -174,7 +201,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Call Preparation Points:',
+                        'How This Works with JioFSM:',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -182,20 +209,19 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
                         ),
                       ),
                       SizedBox(height: 10),
-                      Text('• Customer details verify karein.'),
+                      Text('1. Asli call lagti hai taaki JioFSM call state detect kar le.'),
                       SizedBox(height: 6),
-                      Text('• JioFSM task status note karein.'),
+                      Text('2. 3 seconds mein asli call cut ho jati hai aur usi Call Log mein 60s update ho jata hai.'),
                       SizedBox(height: 6),
-                      Text('• Jab chahein Red button daba kar call end karein, exact seconds Call History mein save ho jayenge.'),
+                      Text('3. Jab aap Red button dabayenge (jaise 45s par), usi log mein 45s save ho jayega.'),
                     ],
                   ),
                 ),
 
-                // Red Hangup / End Call Button
                 Column(
                   children: [
                     GestureDetector(
-                      onTap: _endCallAndSaveLog,
+                      onTap: _endCallAndSaveFinalLog,
                       child: Container(
                         height: 72,
                         width: 72,
@@ -212,7 +238,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'End & Log (${_elapsedSeconds}s)',
+                      'End & Update Same Log (${_elapsedSeconds}s)',
                       style: const TextStyle(color: Colors.white70),
                     ),
                   ],
@@ -224,7 +250,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
       );
     }
 
-    // 2. Normal Setup Screen (Jab koi call active na ho)
     return Scaffold(
       appBar: AppBar(
         title: const Text('Suggestion Dialer Setup'),
@@ -244,12 +269,36 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
               const SizedBox(height: 16),
               Text(
                 _isSetupDone
-                    ? 'App Ready Hai! Ab aap JioFSM se call click kar sakte hain.'
-                    : 'Pehle Permissions aur Call Redirection enable karein.',
+                    ? 'Ready! JioFSM se call click karne par 3s ring hokar auto-cut hogi aur wahi log edit hoga.'
+                    : 'Permissions (Phone, Call Log, Auto-End Call) aur Call Redirection allow karein.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 18),
+                style: const TextStyle(fontSize: 16),
               ),
               const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Auto-Cut Ring Delay: ', style: TextStyle(fontSize: 16)),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: () {
+                      if (_ringCutSeconds > 1) {
+                        setState(() => _ringCutSeconds--);
+                      }
+                    },
+                  ),
+                  Text('$_ringCutSeconds sec', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline),
+                    onPressed: () {
+                      if (_ringCutSeconds < 10) {
+                        setState(() => _ringCutSeconds++);
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               ElevatedButton.icon(
                 onPressed: () async {
                   await platform.invokeMethod('requestSetup');
@@ -262,14 +311,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen> {
                 },
                 icon: const Icon(Icons.security),
                 label: const Text('Enable Permissions & Call Interception'),
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: () {
-                  _startSimulatedCall('9876543210');
-                },
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Test Fake Call Timer (Demo)'),
               ),
             ],
           ),
