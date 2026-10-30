@@ -1,408 +1,275 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 void main() {
-  runApp(const SuggestionDialerApp());
+  runApp(const MyApp());
 }
 
-class SuggestionDialerApp extends StatelessWidget {
-  const SuggestionDialerApp({super.key});
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Suggestion Call',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(useMaterial3: true).copyWith(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.tealAccent,
-          brightness: Brightness.dark,
-        ),
+      title: 'Suggestion Dialer',
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF121212),
       ),
-      home: const HomeScreen(),
+      home: const DialerHomeScreen(),
     );
   }
 }
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class DialerHomeScreen extends StatefulWidget {
+  const DialerHomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<DialerHomeScreen> createState() => _DialerHomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  static const platform = MethodChannel('com.example.suggestion_dialer/call_channel');
+class _DialerHomeScreenState extends State<DialerHomeScreen> {
+  static const platform = MethodChannel('com.example.suggestion/call_channel');
 
-  final List<String> _suggestions = [
-    "Take a deep breath and speak 15% slower than usual.",
-    "State your main purpose clearly in the first 20 seconds.",
-    "Listen actively without interrupting while they respond.",
-    "Ask open-ended questions starting with 'How' or 'What'.",
-    "Smile while talking—it noticeably changes your vocal tone.",
-    "Confirm the next action item before hanging up.",
-    "Keep your posture upright to project confidence.",
-    "If you need time to think, pause instead of using filler words."
-  ];
-
-  bool _speakSuggestionsAloud = true;
-  bool _autoPlaceRealCallAfterTimer = false;
-  String? _activeInterceptedNumber;
-  int _secondsRemaining = 60;
-  String _currentSuggestion = "";
-  Timer? _countdownTimer;
-  final TextEditingController _newSuggestionController = TextEditingController();
+  String? _activeNumber;
+  int _elapsedSeconds = 0;
+  final int _maxSeconds = 60;
+  Timer? _callTimer;
+  bool _isSetupDone = false;
 
   @override
   void initState() {
     super.initState();
-    _setupMethodChannelListener();
-    _checkInitialLaunchNumber();
+    _initChannel();
   }
 
-  void _setupMethodChannelListener() {
+  Future<void> _initChannel() async {
+    // Jab app pehle se background me ho aur JioFSM se nayi call intercept ho
     platform.setMethodCallHandler((call) async {
-      if (call.method == 'onIncomingDial') {
-        final String number = call.arguments as String? ?? "Unknown Number";
-        _startSuggestionCallSession(number);
+      if (call.method == "onCallIntercepted") {
+        final String number = call.arguments as String;
+        _startSimulatedCall(number);
+      }
+    });
+
+    // Check karein ki permissions aur role enabled hain ya nahi
+    final bool status = await platform.invokeMethod('checkSetupStatus') ?? false;
+    setState(() {
+      _isSetupDone = status;
+    });
+
+    // Agar app band thi aur call intercept hone se launch hui
+    final String? initialNumber = await platform.invokeMethod('getInitialNumber');
+    if (initialNumber != null && initialNumber.isNotEmpty) {
+      _startSimulatedCall(initialNumber);
+    }
+  }
+
+  void _startSimulatedCall(String number) {
+    _callTimer?.cancel();
+    setState(() {
+      _activeNumber = number;
+      _elapsedSeconds = 0;
+    });
+
+    // IVR / Suggestion voice start karein
+    platform.invokeMethod('speakText', {
+      'text': 'Call connected to $number. Your 60 seconds preparation session has started.'
+    });
+
+    // Har 1 second par timer badhayein
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _elapsedSeconds++;
+      });
+
+      // 60 seconds pure hone par automatic save aur close
+      if (_elapsedSeconds >= _maxSeconds) {
+        _endCallAndSaveLog();
       }
     });
   }
 
-  Future<void> _checkInitialLaunchNumber() async {
-    try {
-      final String? initialNumber = await platform.invokeMethod('getInitialNumber');
-      if (initialNumber != null && initialNumber.isNotEmpty) {
-        _startSuggestionCallSession(initialNumber);
-      }
-    } on PlatformException {
-      // Ignore on normal startup
-    }
-  }
+  Future<void> _endCallAndSaveLog() async {
+    _callTimer?.cancel();
+    await platform.invokeMethod('stopSpeaking');
 
-  void _startSuggestionCallSession(String phoneNumber) {
-    _countdownTimer?.cancel();
+    final String numberToLog = _activeNumber ?? "Unknown";
+    // Agar 0 second par cut kiya toh kam se kam 1 sec log karein, warna exact seconds (e.g. 45s)
+    final int durationToLog = _elapsedSeconds > 0 ? _elapsedSeconds : 1;
+
+    await platform.invokeMethod('insertCallLog', {
+      'phoneNumber': numberToLog,
+      'duration': durationToLog,
+    });
+
     setState(() {
-      _activeInterceptedNumber = phoneNumber;
-      _secondsRemaining = 60;
-      _currentSuggestion = _getRandomSuggestion();
+      _activeNumber = null;
+      _elapsedSeconds = 0;
     });
 
-    if (_speakSuggestionsAloud) {
-      platform.invokeMethod('speakText', {'text': _currentSuggestion});
-    }
-
-        _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_secondsRemaining > 1) {
-        setState(() {
-          _secondsRemaining--;
-          // Rotate suggestion every 10 seconds
-          if (_secondsRemaining % 10 == 0) {
-            _currentSuggestion = _getRandomSuggestion();
-            if (_speakSuggestionsAloud) {
-              platform.invokeMethod('speakText', {'text': _currentSuggestion});
-            }
-          }
-        });
-      } else {
-        timer.cancel();
-        // Time's up! Stop speaking and close suggestion screen, call is already live
-        platform.invokeMethod('stopSpeaking');
-        setState(() {
-          _activeInterceptedNumber = null;
-        });
-      }
-    });
-
-  }
-
-  String _getRandomSuggestion() {
-    if (_suggestions.isEmpty) return "Stay calm and focused.";
-    return _suggestions[Random().nextInt(_suggestions.length)];
-  }
-
-  void _nextSuggestionManually() {
-    setState(() {
-      _currentSuggestion = _getRandomSuggestion();
-    });
-    if (_speakSuggestionsAloud) {
-      platform.invokeMethod('speakText', {'text': _currentSuggestion});
-    }
-  }
-
-  void _endSuggestionSession() {
-    _countdownTimer?.cancel();
-    platform.invokeMethod('stopSpeaking');
-    setState(() {
-      _activeInterceptedNumber = null;
-    });
+    // App close karke wapas JioFSM screen par bhej dein
     SystemNavigator.pop();
   }
 
-  void _triggerRealCall() {
-    final number = _activeInterceptedNumber;
-    _countdownTimer?.cancel();
-    platform.invokeMethod('stopSpeaking');
-    setState(() {
-      _activeInterceptedNumber = null;
-    });
-    if (number != null) {
-      platform.invokeMethod('placeRealCall', {'number': number});
-    }
+  String _formatDuration(int totalSeconds) {
+    final int minutes = totalSeconds ~/ 60;
+    final int seconds = totalSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
-    _newSuggestionController.dispose();
+    _callTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Show the 1-Minute Suggestion Call Screen whenever a call is intercepted
-    if (_activeInterceptedNumber != null) {
-      return _buildActiveCallScreen();
-    }
-
-    // Otherwise, show the Setup & Customization Dashboard
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Suggestion Call Setup'),
-        centerTitle: true,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Step 1: Enable Call Redirection',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Grant permissions and set this app as your Default Call Redirection or Dialer app so calls from any app open here first.',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    onPressed: () => platform.invokeMethod('requestPermissions'),
-                    icon: const Icon(Icons.security),
-                    label: const Text('1. Grant Phone Permissions'),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => platform.invokeMethod('requestCallRedirectionRole'),
-                    icon: const Icon(Icons.call_split),
-                    label: const Text('2. Set as Call Redirection App (Recommended)'),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => platform.invokeMethod('requestDefaultDialerRole'),
-                    icon: const Icon(Icons.phone_android),
-                    label: const Text('3. Set as Default Dialer App (Optional)'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
+    // 1. Agar Call Intercept hui hai toh Native-style Active Call UI dikhayein
+    if (_activeNumber != null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SwitchListTile(
-                  title: const Text('Speak Suggestions Aloud (Voice Mode)'),
-                  subtitle: const Text('Reads suggestions like a live phone call'),
-                  value: _speakSuggestionsAloud,
-                  onChanged: (val) => setState(() => _speakSuggestionsAloud = val),
+                Column(
+                  children: [
+                    const Text(
+                      'Connected (Simulated IVR)',
+                      style: TextStyle(color: Colors.greenAccent, fontSize: 16),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _activeNumber!,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _formatDuration(_elapsedSeconds),
+                      style: const TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.w300,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
-                SwitchListTile(
-                  title: const Text('Auto-Dial Real Call After 60s'),
-                  subtitle: const Text(
-                    'If OFF, the call simply ends after giving 1 minute of suggestions',
+
+                // Suggestions Card
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white10,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  value: _autoPlaceRealCallAfterTimer,
-                  onChanged: (val) => setState(() => _autoPlaceRealCallAfterTimer = val),
+                  child: const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Call Preparation Points:',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.amberAccent,
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Text('• Customer details verify karein.'),
+                      SizedBox(height: 6),
+                      Text('• JioFSM task status note karein.'),
+                      SizedBox(height: 6),
+                      Text('• Jab chahein Red button daba kar call end karein, exact seconds Call History mein save ho jayenge.'),
+                    ],
+                  ),
+                ),
+
+                // Red Hangup / End Call Button
+                Column(
+                  children: [
+                    GestureDetector(
+                      onTap: _endCallAndSaveLog,
+                      child: Container(
+                        height: 72,
+                        width: 72,
+                        decoration: const BoxDecoration(
+                          color: Colors.redAccent,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.call_end,
+                          color: Colors.white,
+                          size: 36,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'End & Log (${_elapsedSeconds}s)',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: () => _startSuggestionCallSession('+91 98765 43210'),
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Test 1-Minute Suggestion Call Now'),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'Your Custom Suggestions',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _newSuggestionController,
-                  decoration: const InputDecoration(
-                    hintText: 'Add a new suggestion...',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filled(
-                icon: const Icon(Icons.add),
-                onPressed: () {
-                  final text = _newSuggestionController.text.trim();
-                  if (text.isNotEmpty) {
-                    setState(() {
-                      _suggestions.insert(0, text);
-                      _newSuggestionController.clear();
-                    });
-                  }
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ..._suggestions.asMap().entries.map((entry) {
-            return Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                title: Text(entry.value),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                  onPressed: () {
-                    setState(() {
-                      _suggestions.removeAt(entry.key);
-                    });
-                  },
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+    }
 
-  Widget _buildActiveCallScreen() {
+    // 2. Normal Setup Screen (Jab koi call active na ho)
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      body: SafeArea(
+      appBar: AppBar(
+        title: const Text('Suggestion Dialer Setup'),
+        backgroundColor: Colors.black26,
+      ),
+      body: Center(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+          padding: const EdgeInsets.all(24.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Column(
-                children: [
-                  const Text(
-                    'SUGGESTION CALL ACTIVE',
-                    style: TextStyle(
-                      color: Colors.tealAccent,
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _activeInterceptedNumber ?? '',
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
+              Icon(
+                _isSetupDone ? Icons.check_circle : Icons.warning_amber_rounded,
+                size: 64,
+                color: _isSetupDone ? Colors.greenAccent : Colors.orangeAccent,
               ),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 140,
-                    height: 140,
-                    child: CircularProgressIndicator(
-                      value: _secondsRemaining / 60.0,
-                      strokeWidth: 8,
-                      color: Colors.tealAccent,
-                      backgroundColor: Colors.white12,
-                    ),
-                  ),
-                  Text(
-                    '${_secondsRemaining}s',
-                    style: const TextStyle(
-                      fontSize: 42,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 16),
+              Text(
+                _isSetupDone
+                    ? 'App Ready Hai! Ab aap JioFSM se call click kar sakte hain.'
+                    : 'Pehle Permissions aur Call Redirection enable karein.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18),
               ),
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.lightbulb, color: Colors.amberAccent, size: 36),
-                    const SizedBox(height: 16),
-                    Text(
-                      _currentSuggestion,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        height: 1.4,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton.icon(
-                      onPressed: _nextSuggestionManually,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Next Suggestion'),
-                    ),
-                  ],
-                ),
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  await platform.invokeMethod('requestSetup');
+                  await Future.delayed(const Duration(seconds: 2));
+                  final bool status =
+                      await platform.invokeMethod('checkSetupStatus') ?? false;
+                  setState(() {
+                    _isSetupDone = status;
+                  });
+                },
+                icon: const Icon(Icons.security),
+                label: const Text('Enable Permissions & Call Interception'),
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Column(
-                    children: [
-                      FloatingActionButton.large(
-                        heroTag: 'end_btn',
-                        backgroundColor: Colors.redAccent,
-                        onPressed: _endSuggestionSession,
-                        child: const Icon(Icons.call_end, size: 36, color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('End / Close'),
-                    ],
-                  ),
-                  Column(
-                    children: [
-                      FloatingActionButton.large(
-                        heroTag: 'call_btn',
-                        backgroundColor: Colors.green,
-                        onPressed: _triggerRealCall,
-                        child: const Icon(Icons.call, size: 36, color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Dial Real Call'),
-                    ],
-                  ),
-                ],
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () {
+                  _startSimulatedCall('9876543210');
+                },
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Test Fake Call Timer (Demo)'),
               ),
             ],
           ),
