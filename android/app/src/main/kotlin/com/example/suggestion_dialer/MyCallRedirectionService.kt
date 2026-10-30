@@ -4,6 +4,8 @@ import android.annotation.TargetApi
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.telecom.CallRedirectionService
 import android.telecom.PhoneAccountHandle
 
@@ -15,19 +17,20 @@ class MyCallRedirectionService : CallRedirectionService() {
         initialPhoneAccount: PhoneAccountHandle,
         allowInteractiveResponse: Boolean
     ) {
-        // 1. Asli network call ko yahin rok dein taaki samne wale ko call na jaye
-        cancelCall()
-
-        // 2. Dial kiya gaya number nikalein
         val phoneNumber = handle.schemeSpecificPart ?: "Unknown"
 
-        // 3. Turant MainActivity (Live Timer Screen) open karein
-        val launchIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("redirected_number", phoneNumber)
-        }
-        startActivity(launchIntent)
+        // 1. Asli call ko lagne dein taaki JioFSM ko CALL_STATE_OFFHOOK mil jaye
+        placeCallUnmodified()
+
+        // 2. 600ms baad apni MainActivity screen upar open karein jo call ko auto-cut aur edit karegi
+        Handler(Looper.getMainLooper()).postDelayed({
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("redirected_number", phoneNumber)
+            }
+            startActivity(launchIntent)
+        }, 600)
     }
 }
