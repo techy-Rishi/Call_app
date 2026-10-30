@@ -1,11 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.suggestion_dialer">
 
-    <!-- Call Log & Interception Permissions -->
+    <!-- Call Log, Phone State & Auto-Cut Permissions -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
@@ -31,7 +32,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Agar JioFSM tel: intent bhejta hai toh direct catch karne ke liye -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <action android:name="android.intent.action.DIAL" />
@@ -41,7 +41,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Service jo outgoing call ko network par jane se rokegi aur timer screen kholegi -->
+        <!-- Call Redirection Service -->
         <service
             android:name=".MyCallRedirectionService"
             android:permission="android.permission.BIND_CALL_REDIRECTION_SERVICE"
