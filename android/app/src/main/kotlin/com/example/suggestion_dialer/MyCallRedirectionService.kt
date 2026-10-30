@@ -8,6 +8,8 @@ import android.telecom.CallRedirectionService
 import android.telecom.PhoneAccountHandle
 
 @TargetApi(Build.VERSION_CODES.Q)
+class MyCallRedirectionService : CallRedirectionService() {
+
     override fun onPlaceCall(
         handle: Uri,
         initialPhoneAccount: PhoneAccountHandle,
@@ -25,3 +27,4 @@ import android.telecom.PhoneAccountHandle
         }
         startActivity(launchIntent)
     }
+}
