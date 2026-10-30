@@ -1,13 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.suggestion_dialer">
 
-    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Call Log & Interception Permissions -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
-        android:label="Suggestion Call"
+        android:label="Suggestion Dialer"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
@@ -19,30 +21,17 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-
+            
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <!-- Standard App Launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Required Intent Filters for Default Dialer Role -->
-            <intent-filter>
-                <action android:name="android.intent.action.DIAL" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.DIAL" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="tel" />
-            </intent-filter>
-
+            <!-- Agar JioFSM tel: intent bhejta hai toh direct catch karne ke liye -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <action android:name="android.intent.action.DIAL" />
@@ -50,36 +39,15 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tel" />
             </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.CALL_BUTTON" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
         </activity>
 
-        <!-- Service 1: CallRedirectionService (Intercepts any outgoing call across Android) -->
+        <!-- Service jo outgoing call ko network par jane se rokegi aur timer screen kholegi -->
         <service
             android:name=".MyCallRedirectionService"
             android:permission="android.permission.BIND_CALL_REDIRECTION_SERVICE"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.telecom.CallRedirectionService" />
-            </intent-filter>
-        </service>
-
-        <!-- Service 2: InCallService (Required by Android for Default Dialer eligibility) -->
-        <service
-            android:name=".MyInCallService"
-            android:permission="android.permission.BIND_INCALL_SERVICE"
-            android:exported="true">
-            <meta-data
-                android:name="android.telecom.IN_CALL_SERVICE_UI"
-                android:value="true" />
-            <meta-data
-                android:name="android.telecom.IN_CALL_SERVICE_RINGING"
-                android:value="true" />
-            <intent-filter>
-                <action android:name="android.telecom.InCallService" />
             </intent-filter>
         </service>
 
