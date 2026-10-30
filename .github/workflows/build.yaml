@@ -24,11 +24,24 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Fix Android v2 Embedding & Dependencies
+        run: |
+          # Backup your custom Kotlin files and Manifest
+          mkdir -p /tmp/custom_android
+          cp -r android/app/src/main/kotlin/* /tmp/custom_android/
+          cp android/app/src/main/AndroidManifest.xml /tmp/custom_android/
+          
+          # Recreate standard v2 Android scaffolding
+          rm -rf android
+          flutter create --org com.example --project-name suggestion_dialer --platforms=android .
+          
+          # Restore your custom Kotlin files and Manifest into the new v2 structure
+          mkdir -p android/app/src/main/kotlin/com/example/suggestion_dialer/
+          cp -r /tmp/custom_android/com/example/suggestion_dialer/* android/app/src/main/kotlin/com/example/suggestion_dialer/
+          cp /tmp/custom_android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+
       - name: Install Flutter dependencies
         run: flutter pub get
-
-      - name: Clean previous builds
-        run: flutter clean
 
       - name: Build Release APK
         run: flutter build apk --release
