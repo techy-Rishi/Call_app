@@ -1,1 +1,45 @@
+name: Build Suggestion Dialer APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Generate Android Gradle scaffolding and overlay custom files
+        run: |
+          mkdir -p /tmp/custom_files
+          cp -r lib pubspec.yaml android /tmp/custom_files/
+          flutter create --org com.example --project-name suggestion_dialer --platforms=android .
+          cp -r /tmp/custom_files/* .
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: suggestion-dialer-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
 
