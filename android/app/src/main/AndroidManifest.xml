@@ -1,12 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.example.suggestion_dialer">
 
-    <!-- Call Log, Phone State & Auto-Cut Permissions -->
+    <!-- Call Log, Phone State, Auto-Cut & Background Auto-Popup Permissions -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
@@ -18,6 +20,8 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -41,7 +45,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Call Redirection Service -->
+        <!-- Primary Interceptor: Call Redirection Service -->
         <service
             android:name=".MyCallRedirectionService"
             android:permission="android.permission.BIND_CALL_REDIRECTION_SERVICE"
@@ -50,6 +54,16 @@
                 <action android:name="android.telecom.CallRedirectionService" />
             </intent-filter>
         </service>
+
+        <!-- Backup Interceptor: Agar kabhi Phone app seedha call le le toh ye pakad lega -->
+        <receiver
+            android:name=".OutgoingCallBackupReceiver"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.PHONE_STATE" />
+                <action android:name="android.intent.action.NEW_OUTGOING_CALL" />
+            </intent-filter>
+        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"
