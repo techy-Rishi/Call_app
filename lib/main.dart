@@ -46,7 +46,14 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   int _targetRandomSeconds = 48;
   int _ringCutSeconds = 5;
   bool _isDialerActive = true;
+  
+  // In-call toggles
+  bool _isMuted = false;
+  bool _isSpeakerOn = true; // Default speaker on for IVR voice
+  bool _isHeld = false;
+
   Timer? _callTimer;
+  Timer? _ivrPromptTimer;
 
   bool _hasPermissions = false;
   bool _hasRole = false;
@@ -61,8 +68,8 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+  void didChangeAppLifecycleState(AppLifecycleState appState) {
+    if (appState == AppLifecycleState.resumed) {
       _refreshSetupStatus();
     }
   }
@@ -85,7 +92,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   Future<void> _initChannel() async {
     platform.setMethodCallHandler((call) async {
       if (call.method == "onCallIntercepted") {
-        if (!_isDialerActive) return; // Agar off hai toh ignore karo
+        if (!_isDialerActive) return;
         final Map<dynamic, dynamic> data = call.arguments as Map<dynamic, dynamic>;
         final String number = (data['phoneNumber'] ?? 'Unknown').toString();
         final int targetDur =
@@ -109,12 +116,32 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
 
   void _startAiSessionUI(String number, int targetDuration) {
     _callTimer?.cancel();
+    _ivrPromptTimer?.cancel();
+
     setState(() {
       _activeNumber = number;
       _elapsedSeconds = 0;
       _targetRandomSeconds = targetDuration.clamp(41, 55);
+      _isMuted = false;
+      _isSpeakerOn = true;
+      _isHeld = false;
     });
 
+    // Initial IVR Welcome Speech
+    _speakIvrVoice('Aapka call connect ho gaya hai. Kripya line par bane rahein.');
+
+    // Periodic IVR Voice Prompts to simulate automated system
+    _ivrPromptTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
+      if (!mounted || _activeNumber == null) {
+        timer.cancel();
+        return;
+      }
+      if (!_isMuted && !_isHeld) {
+        _speakIvrVoice('Network verification jari hai. Kripya pratiksha karein.');
+      }
+    });
+
+    // Main Call Duration Timer
     _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
@@ -127,8 +154,15 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
     });
   }
 
+  void _speakIvrVoice(String text) {
+    if (_isSpeakerOn && !_isMuted) {
+      platform.invokeMethod('speakText', {'text': text});
+    }
+  }
+
   Future<void> _finishAndReturnToFsm() async {
     _callTimer?.cancel();
+    _ivrPromptTimer?.cancel();
     await platform.invokeMethod('stopSpeaking');
 
     final String numberToLog = _activeNumber ?? "Unknown";
@@ -161,88 +195,179 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _callTimer?.cancel();
+    _ivrPromptTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // --- CALL IN-PROGRESS PROFESSIONAL PHONE APP UI ---
+    // --- PROFESSIONAL CENTER-ALIGNED IN-CALL UI ---
     if (_activeNumber != null) {
       return Scaffold(
         backgroundColor: Colors.white,
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  children: [
-                    const SizedBox(height: 20),
-                    Text(
-                      _activeNumber!,
-                      style: const TextStyle(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w400,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Calling...',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.black54,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    Text(
-                      _formatDuration(_elapsedSeconds),
-                      style: const TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.w200,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ],
-                ),
-                Column(
-                  children: [
-                    GestureDetector(
-                      onTap: _finishAndReturnToFsm,
-                      child: Container(
-                        height: 72,
-                        width: 72,
-                        decoration: const BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Caller Info Header
+                        Column(
+                          children: [
+                            const SizedBox(height: 20),
+                            Text(
+                              _activeNumber!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w400,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Connected • IVR System',
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: Colors.black54,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              _formatDuration(_elapsedSeconds),
+                              style: const TextStyle(
+                                fontSize: 46,
+                                fontWeight: FontWeight.w200,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
                         ),
-                        child: const Icon(
-                          Icons.call_end,
-                          color: Colors.white,
-                          size: 36,
+
+                        // Standard Phone Call Action Grid (Speaker, Mute, Hold, etc.)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20.0),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _buildCallActionButton(
+                                    icon: _isMuted ? Icons.mic_off : Icons.mic,
+                                    label: 'Mute',
+                                    isActive: _isMuted,
+                                    onPressed: () {
+                                      setState(() => _isMuted = !_isMuted);
+                                      if (_isMuted) platform.invokeMethod('stopSpeaking');
+                                    },
+                                  ),
+                                  _buildCallActionButton(
+                                    icon: Icons.dialpad,
+                                    label: 'Keypad',
+                                    isActive: false,
+                                    onPressed: () {},
+                                  ),
+                                  _buildCallActionButton(
+                                    icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_off,
+                                    label: 'Speaker',
+                                    isActive: _isSpeakerOn,
+                                    onPressed: () {
+                                      setState(() => _isSpeakerOn = !_isSpeakerOn);
+                                      if (!_isSpeakerOn) {
+                                        platform.invokeMethod('stopSpeaking');
+                                      } else {
+                                        _speakIvrVoice('Speaker mode enabled.');
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _buildCallActionButton(
+                                    icon: Icons.add_call,
+                                    label: 'Add call',
+                                    isActive: false,
+                                    onPressed: () {},
+                                  ),
+                                  _buildCallActionButton(
+                                    icon: _isHeld ? Icons.play_arrow : Icons.pause,
+                                    label: _isHeld ? 'Resume' : 'Hold',
+                                    isActive: _isHeld,
+                                    onPressed: () {
+                                      setState(() => _isHeld = !_isHeld);
+                                    },
+                                  ),
+                                  _buildCallActionButton(
+                                    icon: Icons.bluetooth_audio,
+                                    label: 'Bluetooth',
+                                    isActive: false,
+                                    onPressed: () {},
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+
+                        // End Call Button (Center Aligned)
+                        Column(
+                          children: [
+                            GestureDetector(
+                              onTap: _finishAndReturnToFsm,
+                              child: Container(
+                                height: 72,
+                                width: 72,
+                                decoration: const BoxDecoration(
+                                  color: Colors.red,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black26,
+                                      blurRadius: 8,
+                                      offset: Offset(0, 4),
+                                    )
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.call_end,
+                                  color: Colors.white,
+                                  size: 36,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'End Call',
+                              style: TextStyle(
+                                color: Colors.black54,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'End Call',
-                      style: TextStyle(
-                        color: Colors.black54,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       );
     }
 
-    // --- HOME / CLEAN SETTINGS SCREEN ---
+    // --- HOME / CONFIGURATION SETTINGS SCREEN ---
     return Scaffold(
       appBar: AppBar(
         title: const Text('Phone Settings', style: TextStyle(color: Colors.black87)),
@@ -253,7 +378,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
       body: ListView(
         padding: const EdgeInsets.all(20.0),
         children: [
-          // Active / Inactive Switch Card
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
@@ -312,7 +436,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Auto-Cut Delay',
+                    const Text('Auto-Cut Delay (3 - 30s)',
                         style: TextStyle(fontSize: 15, color: Colors.black87)),
                     Text('$_ringCutSeconds sec',
                         style: const TextStyle(
@@ -355,6 +479,44 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
               title: 'Appear on Top (Overlay)', isDone: _hasOverlay, onTap: () => platform.invokeMethod('requestOverlayPermission')),
         ],
       ),
+    );
+  }
+
+  Widget _buildCallActionButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required VoidCallback onPressed,
+  }) {
+    return Column(
+      children: [
+        InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(30),
+          child: Container(
+            height: 60,
+            width: 60,
+            decoration: BoxDecoration(
+              color: isActive ? Colors.blue.withOpacity(0.15) : Colors.grey[200],
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: isActive ? Colors.blue : Colors.black87,
+              size: 26,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.black54,
+            fontSize: 12,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
     );
   }
 
