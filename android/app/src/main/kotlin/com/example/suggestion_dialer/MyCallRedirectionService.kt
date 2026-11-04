@@ -16,10 +16,12 @@ class MyCallRedirectionService : CallRedirectionService() {
     ) {
         val phoneNumber = handle.schemeSpecificPart ?: "Unknown"
 
-        // 1. Asli call jane dein taaki JioFSM ko CALL_STATE_OFFHOOK mil jaye
+        // Hamesha call ko unmodified jane do taaki network/system block na kare
         placeCallUnmodified()
 
-        // 2. Turant Background Engine start karein (bina app manually khole bhi kaam karega)
-        MainActivity.startBackgroundCallProcess(applicationContext, phoneNumber)
+        // Agar user ne dialer active rakha hai tabhi automation trigger karein
+        if (MainActivity.isDialerActive) {
+            MainActivity.startBackgroundCallProcess(applicationContext, phoneNumber)
+        }
     }
 }
