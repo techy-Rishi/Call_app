@@ -14,12 +14,14 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'AI Suggestion Dialer',
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0D1117),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF00E676),
-          secondary: Color(0xFF2979FF),
+      title: 'Phone',
+      theme: ThemeData(
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: Colors.white,
+        primaryColor: Colors.blue,
+        colorScheme: const ColorScheme.light(
+          primary: Colors.blue,
+          secondary: Colors.blueAccent,
         ),
       ),
       home: const DialerHomeScreen(),
@@ -41,8 +43,9 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
 
   String? _activeNumber;
   int _elapsedSeconds = 0;
-  int _targetRandomSeconds = 48; // Har call par 41-55s ke beech random hoga
-  int _ringCutSeconds = 3;
+  int _targetRandomSeconds = 48;
+  int _ringCutSeconds = 5;
+  bool _isDialerActive = true;
   Timer? _callTimer;
 
   bool _hasPermissions = false;
@@ -82,6 +85,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   Future<void> _initChannel() async {
     platform.setMethodCallHandler((call) async {
       if (call.method == "onCallIntercepted") {
+        if (!_isDialerActive) return; // Agar off hai toh ignore karo
         final Map<dynamic, dynamic> data = call.arguments as Map<dynamic, dynamic>;
         final String number = (data['phoneNumber'] ?? 'Unknown').toString();
         final int targetDur =
@@ -94,7 +98,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
 
     final Map<dynamic, dynamic>? initialSession =
         await platform.invokeMethod('getInitialSession');
-    if (initialSession != null) {
+    if (initialSession != null && _isDialerActive) {
       final String number =
           (initialSession['phoneNumber'] ?? 'Unknown').toString();
       final int targetDur =
@@ -109,11 +113,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
       _activeNumber = number;
       _elapsedSeconds = 0;
       _targetRandomSeconds = targetDuration.clamp(41, 55);
-    });
-
-    platform.invokeMethod('speakText', {
-      'text':
-          'AI Assistant active. Call will auto cut in $_ringCutSeconds seconds and log $_targetRandomSeconds seconds.'
     });
 
     _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -133,7 +132,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
     await platform.invokeMethod('stopSpeaking');
 
     final String numberToLog = _activeNumber ?? "Unknown";
-    // Agar user jaldi bhi cut kare, tab bhi 41-55s wala random duration hi save hoga
     final int finalDuration = _elapsedSeconds >= 41
         ? _elapsedSeconds.clamp(41, 55)
         : _targetRandomSeconds;
@@ -159,16 +157,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  String _getAiSmartTip() {
-    if (_elapsedSeconds < _ringCutSeconds) {
-      return 'Step 1: JioFSM CallStateReceiver ko real OFFHOOK signal bheja ja raha hai...';
-    } else if (_elapsedSeconds < 8) {
-      return 'Step 2: Asli call auto-cut ho chuki hai! Call Log mein $_targetRandomSeconds sec inject ho gaya hai.';
-    } else {
-      return 'Step 3: Call Log $_targetRandomSeconds sec par lock hai. Aap chahein toh abhi Red button daba kar wapas JioFSM me ja sakte hain!';
-    }
-  }
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -178,163 +166,56 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
 
   @override
   Widget build(BuildContext context) {
+    // --- CALL IN-PROGRESS PROFESSIONAL PHONE APP UI ---
     if (_activeNumber != null) {
-      final bool isCutDone = _elapsedSeconds >= _ringCutSeconds;
-      final double progress =
-          (_elapsedSeconds / _targetRandomSeconds).clamp(0.0, 1.0);
-
       return Scaffold(
+        backgroundColor: Colors.white,
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22.0, vertical: 28.0),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Top Status & Number
                 Column(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isCutDone
-                            ? Colors.greenAccent.withOpacity(0.15)
-                            : Colors.orangeAccent.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(30),
-                        border: Border.all(
-                          color: isCutDone
-                              ? Colors.greenAccent
-                              : Colors.orangeAccent,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isCutDone ? Icons.verified : Icons.ring_volume,
-                            size: 18,
-                            color: isCutDone
-                                ? Colors.greenAccent
-                                : Colors.orangeAccent,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            isCutDone
-                                ? 'Call Cut & $_targetRandomSeconds sec Logged!'
-                                : 'Ringing (${_ringCutSeconds - _elapsedSeconds}s left)...',
-                            style: TextStyle(
-                              color: isCutDone
-                                  ? Colors.greenAccent
-                                  : Colors.orangeAccent,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 20),
                     Text(
                       _activeNumber!,
                       style: const TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        fontSize: 34,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.black87,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      'Randomized Target: $_targetRandomSeconds sec (Range: 41s - 55s)',
-                      style: const TextStyle(
-                          color: Colors.white60, fontSize: 13),
+                    const Text(
+                      'Calling...',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.black54,
+                      ),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 30),
                     Text(
                       _formatDuration(_elapsedSeconds),
                       style: const TextStyle(
-                        fontSize: 52,
-                        fontWeight: FontWeight.w300,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 8,
-                        backgroundColor: Colors.white12,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          isCutDone ? Colors.greenAccent : Colors.orangeAccent,
-                        ),
+                        fontSize: 48,
+                        fontWeight: FontWeight.w200,
+                        color: Colors.black87,
                       ),
                     ),
                   ],
                 ),
-
-                // AI Smart Status & Script Card
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF161B22),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.auto_awesome,
-                              color: Colors.amberAccent, size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            'AI Call Sync Engine',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amberAccent,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _getAiSmartTip(),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.white,
-                          height: 1.4,
-                        ),
-                      ),
-                      const Divider(color: Colors.white12, height: 24),
-                      const Text(
-                        '• Har call par 41s–55s ke beech alag random duration lagti hai.\n'
-                        '• Background ContentObserver 0s log ko turant overwrite kar deta hai.',
-                        style: TextStyle(color: Colors.white70, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Hangup / Complete Button
                 Column(
                   children: [
                     GestureDetector(
                       onTap: _finishAndReturnToFsm,
                       child: Container(
-                        height: 74,
-                        width: 74,
+                        height: 72,
+                        width: 72,
                         decoration: const BoxDecoration(
-                          color: Colors.redAccent,
+                          color: Colors.red,
                           shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.redAccent,
-                              blurRadius: 12,
-                              spreadRadius: 1,
-                            )
-                          ],
                         ),
                         child: const Icon(
                           Icons.call_end,
@@ -343,11 +224,12 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Save $_targetRandomSeconds sec & Return to JioFSM',
-                      style: const TextStyle(
-                        color: Colors.white70,
+                    const SizedBox(height: 16),
+                    const Text(
+                      'End Call',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -360,181 +242,157 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
       );
     }
 
-    // Home / Setup Screen
+    // --- HOME / CLEAN SETTINGS SCREEN ---
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AI Suggestion Dialer (41s-55s)'),
-        backgroundColor: const Color(0xFF161B22),
-        elevation: 0,
+        title: const Text('Phone Settings', style: TextStyle(color: Colors.black87)),
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        iconTheme: const IconThemeData(color: Colors.black87),
       ),
-      body: SingleChildScrollView(
+      body: ListView(
         padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: _isAllReady
-                    ? Colors.green.withOpacity(0.12)
-                    : Colors.orange.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _isAllReady ? Colors.greenAccent : Colors.orangeAccent,
+        children: [
+          // Active / Inactive Switch Card
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Suggestion Dialer',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Inactive karne par normal calls jayengi',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
                 ),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    _isAllReady
-                        ? Icons.verified_user
-                        : Icons.warning_amber_rounded,
-                    size: 48,
-                    color:
-                        _isAllReady ? Colors.greenAccent : Colors.orangeAccent,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _isAllReady
-                        ? '100% Ready! Ab JioFSM se call karne par background me apne aap kaam karega.'
-                        : 'Niche diye gaye teeno setup steps ko Green karein taaki app background se apne aap open ho sake:',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
+                Switch(
+                  value: _isDialerActive,
+                  activeColor: Colors.blue,
+                  onChanged: (val) {
+                    setState(() => _isDialerActive = val);
+                    platform.invokeMethod('setDialerActiveState', {'isActive': val});
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
+          ),
+          const SizedBox(height: 20),
 
-            _buildCheckTile(
-              title: '1. Call Log & Auto-Cut Permissions',
-              subtitle: 'Call cut karne aur Call History edit karne ke liye',
-              isDone: _hasPermissions,
-              onTap: () async {
-                await platform.invokeMethod('requestSetup');
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildCheckTile(
-              title: '2. Default Call Redirection App',
-              subtitle: 'JioFSM ki outgoing call ko intercept karne ke liye',
-              isDone: _hasRole,
-              onTap: () async {
-                await platform.invokeMethod('requestSetup');
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildCheckTile(
-              title: '3. Appear on Top (Overlay Permission)',
-              subtitle:
-                  'Zaroori: Phone app ke upar Suggestion Dialer apne aap khulne ke liye',
-              isDone: _hasOverlay,
-              onTap: () async {
-                await platform.invokeMethod('requestOverlayPermission');
-              },
-            ),
+          const Text(
+            'Configuration',
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
 
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF161B22),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Real Call Auto-Cut Delay:',
-                    style: TextStyle(fontSize: 15),
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline),
-                        onPressed: () {
-                          if (_ringCutSeconds > 2) {
-                            setState(() => _ringCutSeconds--);
-                            platform.invokeMethod('setRingCutDelay',
-                                {'seconds': _ringCutSeconds});
-                          }
-                        },
-                      ),
-                      Text(
-                        '$_ringCutSeconds sec',
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Auto-Cut Delay',
+                        style: TextStyle(fontSize: 15, color: Colors.black87)),
+                    Text('$_ringCutSeconds sec',
                         style: const TextStyle(
-                            fontSize: 17, fontWeight: FontWeight.bold),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () {
-                          if (_ringCutSeconds < 8) {
-                            setState(() => _ringCutSeconds++);
-                            platform.invokeMethod('setRingCutDelay',
-                                {'seconds': _ringCutSeconds});
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue)),
+                  ],
+                ),
+                Slider(
+                  value: _ringCutSeconds.toDouble(),
+                  min: 3,
+                  max: 30,
+                  divisions: 27,
+                  label: '$_ringCutSeconds sec',
+                  onChanged: (val) {
+                    setState(() => _ringCutSeconds = val.toInt());
+                    platform.invokeMethod(
+                        'setRingCutDelay', {'seconds': _ringCutSeconds});
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+
+          const SizedBox(height: 24),
+          const Text(
+            'Permissions Status',
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+
+          _buildCheckTile(
+              title: 'Call Log & Permissions', isDone: _hasPermissions, onTap: () => platform.invokeMethod('requestSetup')),
+          const SizedBox(height: 8),
+          _buildCheckTile(
+              title: 'Default Call Redirection App', isDone: _hasRole, onTap: () => platform.invokeMethod('requestSetup')),
+          const SizedBox(height: 8),
+          _buildCheckTile(
+              title: 'Appear on Top (Overlay)', isDone: _hasOverlay, onTap: () => platform.invokeMethod('requestOverlayPermission')),
+        ],
       ),
     );
   }
 
   Widget _buildCheckTile({
     required String title,
-    required String subtitle,
     required bool isDone,
     required VoidCallback onTap,
   }) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFF161B22),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isDone ? Colors.greenAccent.withOpacity(0.5) : Colors.white24,
-          ),
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             Icon(
-              isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-              color: isDone ? Colors.greenAccent : Colors.orangeAccent,
-              size: 28,
+              isDone ? Icons.check_circle : Icons.error_outline,
+              color: isDone ? Colors.green : Colors.orange,
+              size: 22,
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(color: Colors.white60, fontSize: 12),
-                  ),
-                ],
+              child: Text(
+                title,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                    color: Colors.black87),
               ),
             ),
             if (!isDone)
-              const Chip(
-                label: Text('Enable', style: TextStyle(fontSize: 12)),
-                backgroundColor: Colors.blueAccent,
-              ),
+              const Text('Fix',
+                  style: TextStyle(
+                      color: Colors.blue, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
