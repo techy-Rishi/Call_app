@@ -47,9 +47,8 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   int _ringCutSeconds = 5;
   bool _isDialerActive = true;
   
-  // In-call toggles
   bool _isMuted = false;
-  bool _isSpeakerOn = true; // Default speaker on for IVR voice
+  bool _isSpeakerOn = true;
   bool _isHeld = false;
 
   Timer? _callTimer;
@@ -64,13 +63,28 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadPersistentConfig();
     _initChannel();
+  }
+
+  Future<void> _loadPersistentConfig() async {
+    try {
+      final Map<dynamic, dynamic>? config =
+          await platform.invokeMethod('getConfig');
+      if (config != null && mounted) {
+        setState(() {
+          _ringCutSeconds = (config['delay'] as int?) ?? 5;
+          _isDialerActive = (config['isActive'] as bool?) ?? true;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
     if (appState == AppLifecycleState.resumed) {
       _refreshSetupStatus();
+      _loadPersistentConfig();
     }
   }
 
@@ -102,6 +116,7 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
     });
 
     await _refreshSetupStatus();
+    await _loadPersistentConfig();
 
     final Map<dynamic, dynamic>? initialSession =
         await platform.invokeMethod('getInitialSession');
@@ -127,10 +142,8 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
       _isHeld = false;
     });
 
-    // Initial IVR Welcome Speech
     _speakIvrVoice('Aapka call connect ho gaya hai. Kripya line par bane rahein.');
 
-    // Periodic IVR Voice Prompts to simulate automated system
     _ivrPromptTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       if (!mounted || _activeNumber == null) {
         timer.cancel();
@@ -141,7 +154,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
       }
     });
 
-    // Main Call Duration Timer
     _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
       setState(() {
@@ -201,7 +213,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    // --- PROFESSIONAL CENTER-ALIGNED IN-CALL UI ---
     if (_activeNumber != null) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -217,41 +228,38 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // Caller Info Header
                         Column(
                           children: [
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 30),
                             Text(
                               _activeNumber!,
                               textAlign: TextAlign.center,
                               style: const TextStyle(
-                                fontSize: 32,
+                                fontSize: 34,
                                 fontWeight: FontWeight.w400,
                                 color: Colors.black87,
                               ),
                             ),
                             const SizedBox(height: 8),
                             const Text(
-                              'Connected • IVR System',
+                              'Calling...',
                               style: TextStyle(
-                                fontSize: 15,
+                                fontSize: 16,
                                 color: Colors.black54,
                                 fontWeight: FontWeight.w400,
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 30),
                             Text(
                               _formatDuration(_elapsedSeconds),
                               style: const TextStyle(
-                                fontSize: 46,
+                                fontSize: 48,
                                 fontWeight: FontWeight.w200,
                                 color: Colors.black87,
                               ),
                             ),
                           ],
                         ),
-
-                        // Standard Phone Call Action Grid (Speaker, Mute, Hold, etc.)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 20.0),
                           child: Column(
@@ -318,8 +326,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
                             ],
                           ),
                         ),
-
-                        // End Call Button (Center Aligned)
                         Column(
                           children: [
                             GestureDetector(
@@ -367,7 +373,6 @@ class _DialerHomeScreenState extends State<DialerHomeScreen>
       );
     }
 
-    // --- HOME / CONFIGURATION SETTINGS SCREEN ---
     return Scaffold(
       appBar: AppBar(
         title: const Text('Phone Settings', style: TextStyle(color: Colors.black87)),
