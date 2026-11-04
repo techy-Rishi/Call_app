@@ -45,20 +45,15 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
         var activePhoneNumber: String? = null
         var activeTargetDuration: Int = 48
         var ringCutDelaySeconds: Int = 3
+        var isDialerActive: Boolean = true // User dwara toggle control
         var callStartTimeMillis: Long = 0L
         var isSessionRunning: Boolean = false
         private var callLogObserver: ContentObserver? = null
 
-        /**
-         * Yeh function background se hi pura kaam संभालta hai:
-         * 1. 41-55s ke beech random time chunta hai.
-         * 2. 3s baad asli call cut karta hai.
-         * 3. ContentObserver + 4 retries se Call Log ko 100% update karta hai.
-         * 4. Suggestion Dialer UI ko automatically Phone app ke upar le aata hai.
-         */
         fun startBackgroundCallProcess(context: Context, rawNumber: String) {
+            if (!isDialerActive) return // Agar user ne dialer off kiya hai toh kuch mat karo
+
             val now = System.currentTimeMillis()
-            // Agar pichle 6 second me pehle hi trigger ho chuka hai toh duplicate trigger rokein
             if (isSessionRunning && (now - callStartTimeMillis) < 6000L) {
                 return
             }
@@ -66,37 +61,27 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
             isSessionRunning = true
             callStartTimeMillis = now
             activePhoneNumber = if (rawNumber.isBlank()) "Unknown" else rawNumber
-            // 41 se 55 seconds ke beech random duration
             activeTargetDuration = Random.nextInt(41, 56)
 
             mainHandler.removeCallbacksAndMessages(null)
             unregisterLogObserver(context)
 
             mainHandler.post {
-                Toast.makeText(
-                    context,
-                    "AI Dialer Active: Auto-cut in ${ringCutDelaySeconds}s -> Log: ${activeTargetDuration}s",
-                    Toast.LENGTH_SHORT
-                ).show()
-
                 instance?.notifyFlutterSession(activePhoneNumber!!, activeTargetDuration)
             }
 
-            // Step A: 1.2s baad UI ko Phone app ke upar pop-up karein
+            // UI Pop-up
             mainHandler.postDelayed({
                 bringActivityToFront(context, activePhoneNumber!!, activeTargetDuration)
-            }, 1200L)
+            }, 800L)
 
-            // Step B: 3s (ringCutDelaySeconds) par asli call cut karein aur Call Log observer lagayein
+            // Auto-cut delay (3 to 30 seconds as requested)
             val cutDelayMillis = ringCutDelaySeconds * 1000L
             mainHandler.postDelayed({
                 registerLogObserver(context, activePhoneNumber!!, activeTargetDuration)
                 cutActiveCarrierCall(context)
-
-                // Call cut hone ke turant baad UI wapas front par layein
                 bringActivityToFront(context, activePhoneNumber!!, activeTargetDuration)
 
-                // Multi-Retry Call Log Updates (taaki kisi bhi phone par 0s na reh jaye)
                 val retryDelays = listOf(700L, 1500L, 2800L, 4500L)
                 for ((index, delay) in retryDelays.withIndex()) {
                     mainHandler.postDelayed({
@@ -110,7 +95,6 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                     }, delay)
                 }
 
-                // 8 second baad observer hata dein aur session flag reset kar dein
                 mainHandler.postDelayed({
                     unregisterLogObserver(context)
                     isSessionRunning = false
@@ -157,7 +141,6 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                 val observer = object : ContentObserver(mainHandler) {
                     override fun onChange(selfChange: Boolean) {
                         super.onChange(selfChange)
-                        // Jaise hi Phone app 0s ka log insert kare, turant use random duration se update kar dein
                         updateSameCallLog(context, number, duration, allowInsertFallback = false)
                     }
                 }
@@ -183,10 +166,6 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        /**
-         * Phone app ne is call session me jo bhi Call Log row banayi hai,
-         * usi exact row ko dhoondh kar 41-55s random duration se overwrite karta hai.
-         */
         fun updateSameCallLog(
             context: Context,
             phoneNumber: String,
@@ -251,7 +230,6 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
 
                 if (updatedAny) return true
 
-                // Agar 4.5s baad bhi Phone app ne log nahi likha, tabhi naya log insert karein
                 if (allowInsertFallback && phoneNumber != "Unknown") {
                     val insertValues = ContentValues().apply {
                         put(CallLog.Calls.NUMBER, phoneNumber)
@@ -322,7 +300,11 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                 }
                 "setRingCutDelay" -> {
                     val seconds = call.argument<Int>("seconds") ?: 3
-                    ringCutDelaySeconds = seconds.coerceIn(1, 10)
+                    ringCutDelaySeconds = seconds.coerceIn(3, 30)
+                    result.success(true)
+                }
+                "setDialerActiveState" -> {
+                    isDialerActive = call.argument<Boolean>("isActive") ?: true
                     result.success(true)
                 }
                 "finalizeCallSession" -> {
@@ -444,10 +426,6 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
     }
 }
 
-/**
- * Backup Receiver: Agar kabhi Phone app bina CallRedirectionService ke call chala de,
- * toh OFFHOOK state aate hi yeh receiver background automation start kar dega.
- */
 class OutgoingCallBackupReceiver : BroadcastReceiver() {
     companion object {
         private var lastSavedNumber: String = "Unknown"
@@ -455,6 +433,8 @@ class OutgoingCallBackupReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (!MainActivity.isDialerActive) return // Agar inactive hai toh bypass karo
+
         if (intent.action == Intent.ACTION_NEW_OUTGOING_CALL) {
             val num = intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER)
             if (!num.isNullOrEmpty()) {
@@ -475,7 +455,6 @@ class OutgoingCallBackupReceiver : BroadcastReceiver() {
                     wasRingingIncoming = true
                 }
                 TelephonyManager.EXTRA_STATE_OFFHOOK -> {
-                    // Agar incoming call nahi thi (yaani outgoing call hai)
                     if (!wasRingingIncoming) {
                         MainActivity.startBackgroundCallProcess(
                             context.applicationContext,
