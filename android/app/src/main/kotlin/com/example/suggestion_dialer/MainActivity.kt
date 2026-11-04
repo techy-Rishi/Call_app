@@ -44,14 +44,34 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
 
         var activePhoneNumber: String? = null
         var activeTargetDuration: Int = 48
-        var ringCutDelaySeconds: Int = 3
-        var isDialerActive: Boolean = true // User dwara toggle control
         var callStartTimeMillis: Long = 0L
         var isSessionRunning: Boolean = false
         private var callLogObserver: ContentObserver? = null
 
+        private const val PREFS_NAME = "SuggestionDialerPrefs"
+
+        fun getSavedDelay(context: Context): Int {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            return prefs.getInt("ringCutDelay", 5)
+        }
+
+        fun saveDelay(context: Context, seconds: Int) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putInt("ringCutDelay", seconds).apply()
+        }
+
+        fun getSavedActiveState(context: Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            return prefs.getBoolean("isDialerActive", true)
+        }
+
+        fun saveActiveState(context: Context, isActive: Boolean) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("isDialerActive", isActive).apply()
+        }
+
         fun startBackgroundCallProcess(context: Context, rawNumber: String) {
-            if (!isDialerActive) return // Agar user ne dialer off kiya hai toh kuch mat karo
+            if (!getSavedActiveState(context)) return
 
             val now = System.currentTimeMillis()
             if (isSessionRunning && (now - callStartTimeMillis) < 6000L) {
@@ -70,13 +90,13 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                 instance?.notifyFlutterSession(activePhoneNumber!!, activeTargetDuration)
             }
 
-            // UI Pop-up
             mainHandler.postDelayed({
                 bringActivityToFront(context, activePhoneNumber!!, activeTargetDuration)
             }, 800L)
 
-            // Auto-cut delay (3 to 30 seconds as requested)
-            val cutDelayMillis = ringCutDelaySeconds * 1000L
+            val cutDelaySeconds = getSavedDelay(context)
+            val cutDelayMillis = cutDelaySeconds * 1000L
+
             mainHandler.postDelayed({
                 registerLogObserver(context, activePhoneNumber!!, activeTargetDuration)
                 cutActiveCarrierCall(context)
@@ -287,6 +307,14 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                         result.success(null)
                     }
                 }
+                "getConfig" -> {
+                    result.success(
+                        mapOf(
+                            "delay" to getSavedDelay(applicationContext),
+                            "isActive" to getSavedActiveState(applicationContext)
+                        )
+                    )
+                }
                 "requestSetup" -> {
                     requestAllPermissionsAndRole()
                     result.success(true)
@@ -299,12 +327,13 @@ class MainActivity : FlutterActivity(), TextToSpeech.OnInitListener {
                     result.success(getDetailedSetupStatus())
                 }
                 "setRingCutDelay" -> {
-                    val seconds = call.argument<Int>("seconds") ?: 3
-                    ringCutDelaySeconds = seconds.coerceIn(3, 30)
+                    val seconds = call.argument<Int>("seconds") ?: 5
+                    saveDelay(applicationContext, seconds.coerceIn(3, 30))
                     result.success(true)
                 }
                 "setDialerActiveState" -> {
-                    isDialerActive = call.argument<Boolean>("isActive") ?: true
+                    val isActive = call.argument<Boolean>("isActive") ?: true
+                    saveActiveState(applicationContext, isActive)
                     result.success(true)
                 }
                 "finalizeCallSession" -> {
@@ -433,7 +462,7 @@ class OutgoingCallBackupReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (!MainActivity.isDialerActive) return // Agar inactive hai toh bypass karo
+        if (!MainActivity.getSavedActiveState(context)) return
 
         if (intent.action == Intent.ACTION_NEW_OUTGOING_CALL) {
             val num = intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER)
