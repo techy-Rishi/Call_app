@@ -16,11 +16,11 @@ class MyCallRedirectionService : CallRedirectionService() {
     ) {
         val phoneNumber = handle.schemeSpecificPart ?: "Unknown"
 
-        // Hamesha call ko unmodified jane do taaki network/system block na kare
+        // Call ko unmodified jane dein taaki system block na kare
         placeCallUnmodified()
 
-        // Agar user ne dialer active rakha hai tabhi automation trigger karein
-        if (MainActivity.isDialerActive) {
+        // Persistent SharedPreferences se check karein ki dialer active hai ya nahi
+        if (MainActivity.getSavedActiveState(applicationContext)) {
             MainActivity.startBackgroundCallProcess(applicationContext, phoneNumber)
         }
     }
